@@ -9,6 +9,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(scatterplot3d)
 ```
 
 You left your job as a tracking unstructured text as you wanting to expand your skills into predictive models.  Luckily you landed a job in advertising! Unfortunately have a demanding and totally clueless boss. Clueless meaning that he doesn't understand data science, but he knows he wants it to be used to fix all the company's problems and you are just the data scientist to do it! 
@@ -28,65 +29,185 @@ As with the clustering lab, please be prepared to present a five minute overview
 # https://data.world/kramea/tv-commercial-detection/workspace/file?filename=tv_commercial_datasets%2FBBC_Cleaned.csv
 
 #You can use the function colnames() to apply the labels (hint: you might need to reshape the labels to make this work)
+library(tidyverse)
+library(dplyr)
+commercial_data<-read.csv("tv_commercial_datasets_CNN_Cleaned.csv") # load in data
+commercial_labels<-read.csv("cnn_commmercial_label.csv",header=FALSE) # load in lables
+commercial_labels<-as.data.frame(t(commercial_labels)) # transposing labels
+colnames(commercial_data)<-commercial_labels # setting the labels as the names of the columns in the dataset
+
 
 ```
 
 ```{r}
-#2. Determine the split between commercial and non-commercial then calculate the base rate, assume 1 is the commercial label and -1 is the non-commercial label 
+#2. Determine the split between commercial and non-commercial then calculate the base rate, assume 1 is the commercial label and -1 is the non-commercial label
+commercial<-commercial_data[which(commercial_data$label == 1),] # commercials have a label of 1
+non_commercial<-commercial_data[which(commercial_data$label == -1),] # non commercials have a label of -1
+base_rate<-nrow(commercial)/nrow(commercial_data) # base rate is the number of commercials over all the data points (almost the probability of a commercial)
 ```
 
 ```{r}
 #3. Since there are columns that contain different metrics for the same variable (i.e. any column that ends in 'mn' is the mean of that variable, while any column that ends in 'var' is the variance of that variable), we don't need to keep both, drop all the columns that include var
+new_data<-commercial_data%>%
+  select(shot_length,motion_distr_mn,frame_diff_dist_mn,short_time_energy_mn,zcr_mn,spectral_centroid_mn,spectral_roll_off_mn,spectral_flux_mn,fundamental_freq_mn,motion_dist_mn,`label `)
 ```
 
 ```{r}
 #4.  Before we run kNN, sometimes it's good to check to make sure that our variables are not highly correlated. Use the cor() function on 'your_dataframe', label it 'commercial_correlations', and view the data, because remember kNN doesn't work well in high dimensions. 
+commercial_correlations<-cor(new_data)
+View(commercial_correlations)
 
 ```
 
 ```{r}
 #5. Determine which variables to remove, high correlations start around .7 or below -.7 I would especially remove variables that appear to be correlated with more than one variable. List your rationale here:
+# got rid of motion_distr because it was correlated with two different variables
+# we got rid of short_time_energy because it had a high correlation (0.82) with spectral flux
+# Finally, we got rid of spectral_centroid because it also had a high correlation (0.8) with spectral_roll_off
+new_data1<-commercial_data%>%
+  select(shot_length,frame_diff_dist_mn,zcr_mn,spectral_roll_off_mn,spectral_flux_mn,fundamental_freq_mn,motion_dist_mn,`label `)
+
 ```
 
 ```{r}
 #6. Use the index to generate a train and test sets, then check the row counts to be safe. 
+set.seed(1982) # setting the sdeed
+commercial_train_rows = sample(1:nrow(new_data1),#<- from 1 to the number of 
+                                                     #rows in the data set
+                              round(0.8 * nrow(new_data1), 0),  #<- multiply the number of rows by 0.8 and round the decimals
+                              replace = FALSE)#<- don't replace the numbers
+
+
+# Let's check to make sure we have 80% of the rows. 
+length(commercial_train_rows) / nrow(new_data1)
+
+commercial_data_train = new_data1[commercial_train_rows, ] #<- select the rows identified in the bank_data_train_rows data
+
+                                                    
+commercial_data_test = new_data1[-commercial_train_rows, ]  #<- select the rows that weren't identified in the bank_data_train_rows data
+
+# Check the number of rows in each set.
+nrow(commercial_data_train)
+nrow(commercial_data_test)
+
 ```
 
 ```{r}
 #7 Train the classifier using k = 3, remember to set.seed so you can repeat the output and to use the labels as a vector for the class (not a index of the dataframe)
+# Install the "class" package that we'll use to run kNN.
+# Take some time to learn about all its functionality.
+#install.packages("class") 
+library(class)
+
+
+# k-Nearest Neighbor is a randomized algorithm, so make sure to
+# use set.seed() to make your results repeatable.
+set.seed(1982)
+comm_3NN <-  knn(train = commercial_data_train[,c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],#<- training set cases
+               test = commercial_data_test[,c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],    #<- test set cases
+               cl = commercial_data_train[, "label "],#<- category for true classification
+               k = 3,#<- number of neighbors considered
+               use.all = TRUE,
+               prob = TRUE) #<- control ties between class assignments If true, all distances equal to the kth largest are included
 ```
 
 
 ```{r}
 #8 Create a initial confusion matrix using the table function and pass it to a object. (xx <- your confusion matrix)
+kNN_res = table(comm_3NN,
+                commercial_data_test$`label `)
+kNN_res
+
+# Select the true positives and true negatives by selecting
+# only the cells where the row and column names are the same.
+kNN_res[row(kNN_res) == col(kNN_res)]
+
+# Calculate the accuracy rate by dividing the correct classifications
+# by the total number of classifications.
+kNN_acc <-  sum(kNN_res[row(kNN_res) == col(kNN_res)]) / sum(kNN_res)
+
+kNN_sen <- kNN_res[2,2]/(kNN_res[2,2]+kNN_res[1,2])
+kNN_sen
+
+x <- (kNN_res[1,2])
+
+kNN_acc
 ```
 
 ```{r}
 #9  Run the confusion matrix function and comment on the model output
+library(caret)
+library(e1071)
+confusionMatrix(as.factor(comm_3NN), as.factor(commercial_data_test$`label `), positive = "1", dnn=c("Prediction", "Actual"), mode = "sens_spec")
 ```
-
+This model has an accuracy of 73%, which is much better compared to the base rate of 63.9%. This means that our model is much more accurate than the base rate provided by the dataset. 
 ```{r}
 #10 Run the "chooseK" function to find the perfect K, while using sapply() function on chooseK() to test k from 1 to 21 (only selecting the odd numbers), and set the train_set argument to 'commercial_train', val_set to 'commercial_test', train_class to the "label"   column of 'commercial_train', and val_class to the "label" column of 'commercial_test'. Label this  "knn_diff_k_com"
+chooseK = function(k, train_set, val_set, train_class, val_class){
+  
+  # Build knn with k neighbors considered.
+  set.seed(1)
+  class_knn = knn(train = train_set,    #<- training set cases
+                  test = val_set,       #<- test set cases
+                  cl = train_class,     #<- category for classification
+                  k = k,                #<- number of neighbors considered
+                  use.all = TRUE)       #<- control ties between class assignments#   If true, all distances equal to the kth largest are included
+  conf_mat = table(class_knn, val_class)
+  
+  # Calculate the accuracy#could change this to Sensitivity 
+  accu = sum(conf_mat[row(conf_mat) == col(conf_mat)]) / sum(conf_mat)                         
+  cbind(k = k, accuracy = accu)
+}
+knn_different_k = sapply(seq(1, 21, by = 2),  #<- set k to be odd number from 1 to 21
+                         function(x) chooseK(x, 
+                                             train_set = commercial_data_train[, c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],
+                                             val_set = commercial_data_test[, c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],
+                                             train_class = commercial_data_train[, "label "],
+                                             val_class = commercial_data_test[, "label "]))
+
+
+
+#A bit more of a explanation...
+seq(1,21, by=2)#just creates a series of numbers
+sapply(seq(1, 21, by=2), function(x) x+1)# sapply returns a new vector using the
+# series of numbers and some calculation that is repeated over the vector of numbers 
 ```
 
 ```{r}
 #11 Create a dataframe so we can visualize the difference in accuracy based on K, convert the matrix to a dataframe
+str(knn_different_k)
+class(knn_different_k)#matrix 
+head(knn_different_k)
+
+knn_different_k = tibble(k = knn_different_k[1,],
+                             accuracy = knn_different_k[2,])
 ```
 
 ```{r}
 #12 Use ggplot to show the output and comment on the k to select.
+# Plot accuracy vs. k
+ggplot(knn_different_k,
+       aes(x = k, y = accuracy)) +
+  geom_line(color = "orange", size = 1.5) +
+  geom_point(size = 3)
 ```
 
 ```{r}
 #13 Rerun the model  with the k you selected, assuming it's different. 
+#selected a k = 5
+comm_5NN <-  knn(train = commercial_data_train[, c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],
+               test = commercial_data_test[, c("shot_length","frame_diff_dist_mn","zcr_mn","spectral_roll_off_mn","spectral_flux_mn","fundamental_freq_mn","motion_dist_mn")],
+               cl = commercial_data_train[, "label "],
+               k = 5,
+               use.all = TRUE,
+               prob = TRUE)
 ```
 
 ```{r}
 #14 Use the confusion matrix function to measure the quality of the new model.
+confusionMatrix(as.factor(comm_5NN), as.factor(commercial_data_test$`label `), positive = "1", dnn=c("Prediction", "Actual"), mode = "sens_spec") 
 ```
 
-```{r}
-#15 Summarize the differences in language Mr. Rooney may actually understand. Include a discussion on which approach k=3 or k="optimal" is the better method moving forward for "MEH". Most importantly draft comments about the overall approach and model quality as it relates to addressing the problem proposed by Ed. 
 
-```
 
+There are two different approaches we have taken in order to properly identify commercials without knowing anything about the commercial. We used a k-nearest neighbors algorithm as a way to establish classes based on the proximity of each commercial's data, and this would help us take a random commercial (or non-commercial) and place it into one of those classes. We decided first to try looking at less neighbors for each point (3 neighbors, to be exact), and obtained an accuracy of ~73%. This means that our model could accurately predict commercial vs. non-commercial 73% of the time, which is much better than the base rate of ~64% (this was, in essence, the probability of commercial vs. non-commercial). We wanted to optimize this algorithm, so we looked at the number of neighbors plotted against the accuracy against the model, and from this graph, we decided that looking at 5 neighbors would have the best of both worlds in terms of accuracy and computational efficiency. We reran the model with this new value, and yet again obtained an accuracy of ~73%. This would tell us that there is no strong difference between the two approaches, and maybe a higher neighbor value would yield different results. However, we would recommend looking at the 3 nearest neighbors, as it would be less computationally expensive and has no tradeoff in accuracy, which would make it easier to identify commercials on the fly. 
